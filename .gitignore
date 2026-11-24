@@ -1,0 +1,5 @@
+venv/
+auth.json
+.env
+*.png
+__pycache__/
