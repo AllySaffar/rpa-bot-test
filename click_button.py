@@ -31,14 +31,26 @@ def short(error):
     return str(error).splitlines()[0]
 
 
+def open_site(page):
+    page.goto(SITE_URL, wait_until="domcontentloaded")
+
+
 def login(page):
-    page.goto(SITE_URL)
-    page.get_by_text("Login").click()
+    open_site(page)
+    login_link = page.get_by_text("Login").first
+    try:
+        login_link.wait_for(timeout=15000)
+    except Exception:
+        log("Already logged in 👍")
+        return
+    login_link.click()
     page.get_by_role("textbox", name="Email").click()
     page.get_by_role("textbox", name="Email").fill(BOT_USERNAME)
     page.get_by_role("textbox", name="Email").press("Tab")
     page.get_by_role("textbox", name="Please Enter Password").fill(BOT_PASSWORD)
     page.get_by_role("button", name="Login").click()
+    # wait until the login box closes = login really finished
+    page.get_by_role("textbox", name="Please Enter Password").wait_for(state="hidden")
     log("Logged in ✅")
 
 
@@ -82,7 +94,7 @@ def pick_seat(page):
 
 
 def fresh_round(page):
-    page.goto(SITE_URL)
+    open_site(page)
     go_to_seat_page(page)
     return pick_seat(page)
 
@@ -91,10 +103,11 @@ def recover(page):
     try:
         return fresh_round(page)
     except Exception as e:
-        log(f"⚠️ Fresh round failed: {short(e)}. Logging in again...")
+        log(f"⚠️ Fresh round failed: {short(e)}. Checking login...")
     try:
         login(page)
-        return fresh_round(page)
+        go_to_seat_page(page)
+        return pick_seat(page)
     except Exception as e:
         log(f"❌ Recovery failed: {short(e)}. Will retry next cycle.")
         return None, None
@@ -103,9 +116,17 @@ def recover(page):
 def run(playwright):
     browser = playwright.chromium.launch(headless=HEADLESS)
     page = browser.new_page()
+    page.set_default_timeout(60000)              # 60 s per step (GitHub is far away)
+    page.set_default_navigation_timeout(60000)
     start = time.time()
+
     login(page)
-    my_seat, number = recover(page)
+    try:
+        go_to_seat_page(page)                    # first round: NO reload after login
+        my_seat, number = pick_seat(page)
+    except Exception as e:
+        log(f"⚠️ First round failed: {short(e)}. Recovering...")
+        my_seat, number = recover(page)
 
     while time.time() - start < MAX_RUN_MINUTES * 60:
         page.wait_for_timeout(REFRESH_SECONDS * 1000)
